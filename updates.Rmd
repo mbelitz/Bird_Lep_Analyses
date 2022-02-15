@@ -1,0 +1,151 @@
+---
+title: "Lep-Bird Pheno Update"
+author: "Michael W Belitz"
+date: "2/15/2022"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(ggplot2)
+```
+
+```{r phenometrics, echo=FALSE}
+## read in phenometrics
+birds <- read.csv("Outputs/birds_hopkinsCorrected.csv")
+leps <- read.csv("data/phenoEstimates/adult_bfly_phenometrics_noCountCircles_withFull2020Data.csv")
+```
+
+
+## Do phenology deviations within cells and groups of species correlate between adult butterflies and birds?
+To do this, I calculated a 5-year mean for each cell/species group using the five most recent years. Next, the deviation was reported as the difference between the phenology estimate and 5-year mean phenology estimate. 
+
+Bird species were grouped into "early", "mid", and "late arriving species based on a hopkins-corrected mean arrival time.
+
+### We find no relationship between the deviation of bird and lep phenology
+
+```{r deviation, echo=FALSE, warning=FALSE, message=FALSE}
+bird_bm <- birds %>% 
+  dplyr::filter(year >= 2013 & year <= 2017) %>% 
+  group_by(cell, season) %>% 
+  summarise(bmPheno = mean(arr_GAM_mean),
+            bmPheno_SD = sd(arr_GAM_mean),
+            uniqueYears = length(unique(year)),
+            uniqueSpp = length(unique(species)))
+
+## now leps
+lep_bm <- leps %>% 
+  dplyr::filter(q50 >= 152 & q50 <=243) %>% 
+  dplyr::filter(year >= 2016 & year <= 2020) %>% 
+  group_by(HEXcell, code) %>% 
+  summarise(bmPheno_5 = mean(q5),
+            bmPheno_50 = mean(q50),
+            bmPheno_5_SD = sd(q5),
+            bmPheno_50_SD = sd(q50),
+            uniqueYears = length(unique(year)),
+            uniqueSpp = length(unique(code)))
+
+## combine these benchmark values with original values
+leps2 <- left_join(leps, lep_bm) %>% 
+  dplyr::filter(uniqueYears >= 5) %>% 
+  dplyr::mutate(dev_5_lep = q5 - bmPheno_5,
+                dev_50_lep = q50 - bmPheno_50,
+                sd_5_lep = (q5 - bmPheno_5) / bmPheno_5_SD,
+                sd_50_lep = (q50 - bmPheno_50) / bmPheno_50_SD) %>% 
+  dplyr::select(HEXcell, year, code, dev_5_lep, dev_50_lep, sd_5_lep, sd_50_lep) %>% 
+  dplyr::rename(cell = HEXcell)
+
+## for birds, we must first combine phenometrics
+birds2 <- birds %>% 
+  group_by(cell, year, season) %>% 
+  summarise(mean_arr = mean(arr_GAM_mean),
+            sd_arr = sd(arr_GAM_mean))
+
+birds3 <- left_join(birds2, bird_bm) %>% 
+  dplyr::filter(uniqueYears >= 5) %>% 
+  dplyr::mutate(dev_arr_bird = mean_arr - bmPheno,
+                sd_arr_bird = (mean_arr - bmPheno) / sd_arr) %>% 
+  dplyr::select(cell, year, season, dev_arr_bird, sd_arr_bird)
+
+## combine bird and lepcells
+lep_bird <- left_join(leps2, birds3) %>% 
+  dplyr::filter(!is.na(season)) %>% 
+  dplyr::filter(dev_5_lep > -50 & dev_5_lep < 50)
+
+ggplot(data = lep_bird) +
+  geom_point(mapping = aes(x = dev_5_lep, y = dev_arr_bird)) +
+  geom_smooth(mapping = aes(x = dev_5_lep, y = dev_arr_bird), method = "lm") +
+  facet_grid(code ~ season) +
+  labs(x = "Deviation of adult butterfly emergence", y = "Deviation of mean bird arrival") +
+  theme_bw()
+
+```
+
+## Does absolute phenology values show a different story?
+
+### Yes, expected trend shown 
+```{r absolute, echo=FALSE, warning=FALSE, message=FALSE}
+lep_bird_absolute <- leps %>% 
+  dplyr::rename(cell = HEXcell) %>% 
+  left_join(., birds2) %>% 
+  dplyr::filter(q50 >= 152 & q50 <=243) %>% 
+  dplyr::filter(q5 < 200) %>% 
+  dplyr::filter(!is.na(season),
+                !is.na(mean_arr),
+                !is.na(q5))
+
+ggplot(data = lep_bird_absolute) +
+  geom_point(mapping = aes(x = q5, y = mean_arr)) +
+  geom_smooth(mapping = aes(x = q5, y = mean_arr), method = "lm") +
+  facet_grid(code ~ season) +
+  labs(x = "Adult butterfly emergence", y = "Mean Bird Arrival") +
+  theme_bw()
+
+```
+
+## Where and when are the points falling away from the line?
+
+### Model
+bird_arrival ~ lep_onset + (1 | unique_bird-lep_grouping) + (0 + lep_onset | unique_bird-lep_grouping)
+
+### Temporal residuals
+```{r temp_resids, echo=FALSE, warning=FALSE, message=FALSE}
+library(lme4)
+lep_bird_absolute <- lep_bird_absolute %>% 
+  mutate(f = paste(code,season,sep = "_"))
+
+m <- lmer(mean_arr ~ q5 + (1 | f) + (0 + q5 | f),
+        data = lep_bird_absolute,
+        REML = FALSE, lmerControl(optimizer = "bobyqa"))
+r <- residuals(m)
+
+lep_bird_absolute_r <- lep_bird_absolute %>% 
+  mutate(resid = r)
+
+ggplot(data = lep_bird_absolute_r) +
+  geom_point(mapping = aes(x = year, y = resid)) +
+  geom_smooth(mapping = aes(x = year, y = resid), method = "lm") +
+  theme_light() +
+  labs(y = "Residuals") +
+  facet_grid(code ~ season)
+```
+
+### Spatial residuals
+```{r spatial_resids, echo=FALSE, warning=FALSE, message=FALSE}
+library(sf)
+h <- raster::shapefile("data/hex_grid_crop.shp")
+
+h_sf <- st_as_sf(h) %>% 
+  st_transform(crs = "+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs")
+h_sf$cell <- as.integer(h_sf$cell)
+
+h_resids <- left_join(h_sf, lep_bird_absolute_r) %>% 
+  dplyr::filter(!is.na(resid))
+
+ggplot(data = h_resids) +
+  geom_sf(mapping = aes(fill = resid)) +
+  scale_fill_gradient2() +
+  theme_classic() +
+  facet_grid(code ~ season)
+```
