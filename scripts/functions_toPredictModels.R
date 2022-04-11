@@ -66,7 +66,7 @@ generate_fledge_predicted_sf <- function(lowmidhigh, grouping){
                     year = rep(mean(fledge_gdd_pc_group$year),68),
                     FFD = MFFD$meanFFD)
   
-  pred <- predictInterval(t_fledge1, pdf, which = "full")
+  pred <- predictInterval(tm_fledge, pdf, which = "full")
   
   df <- cbind(pdf, pred)
   df$cell <- as.character(df$cell)
@@ -103,7 +103,7 @@ generate_lep_predicted_sf <- function(lowmidhigh, grouping){
                     cell = MFFD$cell,
                     FFD = MFFD$meanFFD)
   
-  pred <- predictInterval(t_leps1, pdf, which = "full")
+  pred <- predictInterval(leps_tm, pdf, which = "full")
   
   df <- cbind(pdf, pred)
   df$cell <- as.character(df$cell)
