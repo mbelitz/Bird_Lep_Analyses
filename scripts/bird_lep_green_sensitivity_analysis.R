@@ -4,6 +4,7 @@ library(sf)
 library(lme4)
 library(lmerTest)
 library(sjPlot)
+library(merTools)
 
 # bird data
 ## read in phenometrics
@@ -31,11 +32,18 @@ ggsave(filename = "figures/clustering.png")
 # read in gdd data
 gdd <- data.table::fread('data/gdd_calcs.txt')
 
+# read in frost free perid data
+ffp <- read.csv("Outputs/frostFreePeriod_byHex.csv")
+
 # combine phenometrics with gdd
 arr_gdd <- left_join(arr, gdd)
 fledge_gdd <- left_join(fledge,gdd)
 leps_gdd <- left_join(leps, gdd)
 
+# combine phenometrics & gdd with ffp
+arr_gdd <- left_join(arr_gdd, ffp)
+fledge_gdd <- left_join(fledge_gdd, ffp)
+leps_gdd <- left_join(leps_gdd, ffp)
 
 # add PC based clusters to df
 arr_gdd_pc <- left_join(arr_gdd, bird_pc)
@@ -45,50 +53,50 @@ fledge_gdd_pc <- left_join(fledge_gdd, bird_pc, by = "species")
 # start with greenup
 greenup <- arr_gdd_pc %>% 
   dplyr::distinct(cell, year, .keep_all = T) %>% 
-  dplyr::select(cell, year, gr_mn, spring.gdd, summer.gdd, spring.dev, summer.dev)
+  dplyr::select(cell, year, gr_mn, spring.gdd, summer.gdd, 
+                spring.dev, summer.dev, FFD)
+greenup <- left_join(greenup, ffp)
 greenup$cell <- as.character(greenup$cell)
-
-greenup_scaled <- greenup %>% 
-  mutate(year = scale(year), 
-         spring.gdd = scale(spring.gdd),
-         spring.dev = scale(spring.dev))
-
-
-# spatiotemporal greenup model
-sp_gu <- lmer(formula = gr_mn ~  year + spring.gdd:year +
-                (1|cell), data = greenup)
-
-sp_gu_s <- step(sp_gu)
-
-summary(sp_gu)
 
 
 # deviation greenup model
-t_gu <-  lmer(formula = gr_mn ~ spring.dev + year +
+t_gu <-  lmer(formula = gr_mn ~ spring.dev + year + FFD +
+                spring.dev:FFD +
                   (1|cell), data = greenup)
 
 t_gu_s <- step(t_gu)
+t_gu_s
 
 summary(t_gu)
+car::vif(t_gu)
 
 b <- plot_model(t_gu, type = "pred", terms = "spring.dev")
 b
+plot_model(t_gu, type = "eff", terms = c("FFD","spring.dev"))
+plot_model(t_gu, type = "eff", terms = c("year"))
 
-nd <- data.frame(spring.dev = -152.5:137.5, year = mean(greenup$year), cell = 1)
-
-greenup_sens <- t_gu@beta[2]
+greenup_spdev <- t_gu@beta[2]
+greenup_year <- t_gu@beta[3]
 
 ## now predict green up across first a low spring.gdd
 length(unique(greenup$cell))
+
+GFFD <- greenup %>% 
+  group_by(cell) %>% 
+  summarise(meanFFD = mean(FFD))
+
 gu_pdf_low <- data.frame(spring.dev = rep(mean(greenup$spring.dev) - sd(greenup$spring.dev), 73),
                   year = rep(mean(greenup$year),73),
-                  cell = unique(greenup$cell))
+                  cell = GFFD$cell,
+                  FFD = GFFD$meanFFD)
 gu_pdf_mid <- data.frame(spring.dev = rep(mean(greenup$spring.dev), 73),
                          year = rep(mean(greenup$year),73),
-                         cell = unique(greenup$cell))
+                         cell =  GFFD$cell,
+                         FFD = GFFD$meanFFD)
 gu_pdf_high <- data.frame(spring.dev = rep(mean(greenup$spring.dev) + sd(greenup$spring.dev), 73),
                          year = rep(mean(greenup$year),73),
-                         cell = unique(greenup$cell))
+                         cell =  GFFD$cell,
+                         FFD = GFFD$meanFFD)
 
 gu_pred_low <- predictInterval(t_gu, newdata = gu_pdf_low, which = "full")
 gu_pred_mid <- predictInterval(t_gu, newdata = gu_pdf_mid, which = "full")
@@ -126,58 +134,44 @@ arr_gdd_pc <- arr_gdd_pc %>%
   filter(!is.na(arr_GAM_mean)) %>% 
   dplyr::select(species, cell, year, arr_GAM_mean, 
                 arr_IAR_mean, arr_IAR_sd, spring.gdd, summer.gdd,
-                spring.dev, summer.dev, cluster)
+                spring.dev, summer.dev, cluster, mean_ffp, FFD)
 
 arr_gdd_pc_group <- arr_gdd_pc %>% 
   group_by(cell, year, cluster) %>% 
   summarise(mean_arr = mean(arr_IAR_mean))
 
 arr_gdd_pc_group <- left_join(arr_gdd_pc_group, gdd)
-
-arr_gdd_scaled <- arr_gdd_pc_group %>% 
-  mutate(year2 = t, 
-         spring.gdd2 = t2,
-         spring.dev2 = t3)
-
-# spatiotemporal arrival model
-sp_ar <- lmer(mean_arr ~ spring.gdd + year +  cluster + 
-                spring.gdd:cluster +
-                year:cluster +
-                (1|cell), data = arr_gdd_pc_group)
-
-sp_ar_s <- step(sp_ar)
-
-car::vif(sp_ar)
-
-sp_ar <- lmer(mean_arr ~ spring.gdd + year +  
-                spring.gdd:cluster +
-                year:cluster +
-                (1|cell), data = arr_gdd_pc_group)
-
-car::vif(sp_ar)
-
-summary(sp_ar)
-
-plot_model(sp_ar, type = "pred", terms = "spring.gdd")
+arr_gdd_pc_group <- left_join(arr_gdd_pc_group, ffp)
+arr_gdd_pc_group$cluster <- as.character(arr_gdd_pc_group$cluster)
 
 # deviation model 
-t_ar <- lmer(mean_arr ~ spring.dev + year + 
+t_ar1 <- lmer(mean_arr ~ spring.dev + year + FFD +
                 spring.dev:cluster +
                 year:cluster +
+               spring.dev:FFD +
                 (1|cell), data = arr_gdd_pc_group)
 
-t_ar_s <- step(t_ar)
-car::vif(t_ar)
+t_ar2 <- lmer(mean_arr ~ spring.dev + year + FFD +
+                spring.dev:FFD:cluster +
+                year:cluster +
+                spring.dev:FFD +
+                (1|cell), data = arr_gdd_pc_group)
 
-summary(t_ar)
 
+summary(t_ar1)
+summary(t_ar2)
+car::vif(t_ar1)
+car::vif(t_ar2)
 
-arr_spring.dev <-    t_ar@beta[2]
-arr_spring.dev_c2 <- t_ar@beta[4]
-arr_spring.dev_c3 <- t_ar@beta[5]
+MuMIn::Weights(AIC(t_ar1,t_ar2))
+summary(t_ar1)
 
-plot_model(t_ar, type = "eff", terms = c("year", "cluster"))
-plot_model(t_ar, type = "eff", terms = c("spring.dev", "cluster"))
+arr_spring.dev <-    t_ar1@beta[2]
+arr_spring.dev_c2 <- t_ar1@beta[5]
+arr_spring.dev_c3 <- t_ar1@beta[6]
+
+plot_model(t_ar1, type = "eff", terms = c("year", "cluster"))
+plot_model(t_ar1, type = "eff", terms = c("spring.dev", "FFD"))
 
 ## now predict arrival across first a low spring.gdd
 source('scripts/functions_toPredictModels.R')
@@ -202,42 +196,42 @@ fledge_gdd_pc <- fledge_gdd_pc %>%
          !is.na(spring.dev)) %>% 
   dplyr::select(species, cell, year, juv_meanday, 
                 spring.gdd, summer.gdd,
-                spring.dev, summer.dev, cluster)
+                spring.dev, summer.dev, cluster, FFD)
 
 fledge_gdd_pc_group <- fledge_gdd_pc %>% 
   group_by(cell, year, cluster) %>% 
   summarise(mean_fledge = mean(juv_meanday))
 
 fledge_gdd_pc_group <- left_join(fledge_gdd_pc_group, gdd)
+fledge_gdd_pc_group <- left_join(fledge_gdd_pc_group, ffp)
 
-# spatiotemporal arrival model
-sp_fledge <- lmer(mean_fledge ~ spring.gdd + year + spring.gdd:year +
-                cluster + 
-                spring.gdd:cluster +
-                year:cluster +
-                spring.gdd:year:cluster +
+# deviation arrival model
+t_fledge1 <- lmer(mean_fledge ~ spring.dev + year + FFD +
+                    spring.dev:cluster +
+                    year:cluster +
+                    spring.dev:FFD +
                 (1|cell), data = fledge_gdd_pc_group)
 
-summary(sp_fledge)
+t_fledge2 <- lmer(mean_fledge ~ spring.dev + year + FFD +
+                     spring.dev:cluster +
+                     year:cluster +
+                     spring.dev:FFD:cluster +
+                     (1|cell), data = fledge_gdd_pc_group)
 
-plot_model(sp_fledge, type = "eff", terms = c("year", "spring.gdd", "cluster"))
+MuMIn::Weights(AIC(t_fledge1, t_fledge2))
 
-# deviation model 
-t_fledge <- lmer(mean_fledge ~ spring.dev + year + 
-               spring.dev:cluster +
-               year:cluster +
-               (1|cell), data = fledge_gdd_pc_group)
+summary(t_fledge1)
+car::vif(t_fledge1)
 
-t_fledge_s <- step(t_fledge)
+plot_model(t_fledge1, type = "eff", terms = c("spring.dev", "FFD"))
+plot_model(t_fledge1, type = "eff", terms = c("year", "cluster"))
+plot_model(t_fledge1, type = "eff", terms = c("spring.dev", "cluster"))
 
-summary(t_fledge)
+summary(t_fledge1)
 
-fledge_spring.dev <- t_fledge@beta[2]
-fledge_spring.dev_c2 <- t_fledge@beta[4]
-fledge_spring.dev_c3 <- t_fledge@beta[5]
-
-plot_model(t_fledge, type = "eff", terms = c("year", "cluster"))
-plot_model(t_fledge, type = "eff", terms = c("spring.dev", "cluster"))
+fledge_spring.dev <- t_fledge1@beta[2]
+fledge_spring.dev_c2 <- t_fledge1@beta[5]
+fledge_spring.dev_c3 <- t_fledge1@beta[6]
 
 ## get sf objects of fleding
 fledge_high_c1_sf <- generate_fledge_predicted_sf(lowmidhigh = 1, grouping = 1)
@@ -260,33 +254,34 @@ leps_gdd <- leps_gdd %>%
          !is.na(spring.dev)) %>% 
   dplyr::select(code, cell, year, q5, uniqObsDays,
                 spring.gdd, summer.gdd,
-                spring.dev, summer.dev)
-
-
-# spatiotemporal arrival model
-sp_leps <- lmer(q5 ~ spring.gdd + year + spring.gdd:year +
-                    code + 
-                  uniqObsDays +
-                    spring.gdd:code +
-                    year:code +
-                    spring.gdd:year:code +
-                    (1|cell), data = leps_gdd)
-
-summary(sp_leps)
-
-plot_model(sp_leps, type = "pred", terms = c("year", "spring.gdd", "code"))
+                spring.dev, summer.dev, FFD)
 
 # deviation model 
-t_leps <- lmer(q5 ~ spring.dev + year + 
-                  uniqObsDays +
+t_leps1 <- lmer(q5 ~ spring.dev + year + FFD +
+                   uniqObsDays +
                    spring.dev:code +
                    year:code +
+                  spring.dev:FFD +
                    (1|cell), data = leps_gdd)
 
-summary(t_leps)
+t_leps2 <- lmer(q5 ~ spring.dev + year + FFD +
+                  uniqObsDays +
+                  spring.dev:code +
+                  year:code +
+                  spring.dev:FFD:code +
+                  (1|cell), data = leps_gdd)
 
-plot_model(t_leps, type = "eff", terms = c("year", "code"))
-plot_model(t_leps, type = "eff", terms = c("spring.dev", "code")) 
+MuMIn::Weights(AIC(t_leps1, t_leps2))
+
+summary(t_leps1)
+car::vif(t_leps1)
+
+summary(t_leps1)
+
+plot_model(t_leps1, type = "slope", terms = c("year", "code"))
+plot_model(t_leps1, type = "eff", terms = c("spring.dev", "code")) 
+plot_model(t_leps1, type = "eff", terms = c("spring.dev", "FFD")) 
+
 
 ## generate sf objects for lep predictions
 leps_high_RL_sf <- generate_lep_predicted_sf(lowmidhigh = 1, grouping = "RL")
@@ -303,6 +298,127 @@ leps_low_RE_sf <- generate_lep_predicted_sf(lowmidhigh = -1, grouping = "RE")
 
 ## plot together
 library(ggpubr)
+
+## first lets plot the sensitivities
+arr_pred <- predict_arrival_allGDD(1) %>% 
+  mutate(Pheno.phase = "Bird arrival")
+arr_int <- filter(arr_pred, spring.dev == 0)$fit
+
+ggplot() +
+  geom_ribbon(arr_pred, mapping = aes(x = spring.dev, 
+                                      ymin = lwr - arr_int, 
+                                      ymax = upr - arr_int),
+              fill = "blue", alpha = 0.2) +
+  geom_smooth(arr_pred, mapping = aes(x = spring.dev,
+                                      y = fit - arr_int),
+              method = "lm") 
+
+# fledge
+fledge_pred_1 <- predict_fledge_allGDD(1) %>% 
+  mutate(Pheno.phase = "Fledge")
+fledge_int_1 <- filter(fledge_pred_1, spring.dev == 0)$fit
+fledge_pred_1  <- fledge_pred_1  %>% 
+  mutate(fit2 = fit - fledge_int_1,
+         upr2 = upr - fledge_int_1,
+         lwr2 = lwr - fledge_int_1)
+
+fledge_pred_2 <- predict_fledge_allGDD(2) %>% 
+  mutate(Pheno.phase = "Fledge")
+fledge_int_2 <- filter(fledge_pred_2, spring.dev == 0)$fit
+fledge_pred_2  <- fledge_pred_2  %>% 
+  mutate(fit2 = fit - fledge_int_2,
+         upr2 = upr - fledge_int_2,
+         lwr2 = lwr - fledge_int_2)
+
+fledge_pred_3 <- predict_fledge_allGDD(3) %>% 
+  mutate(Pheno.phase = "Fledge")
+fledge_int_3 <- filter(fledge_pred_3, spring.dev == 0)$fit
+fledge_pred_3  <- fledge_pred_3  %>% 
+  mutate(fit2 = fit - fledge_int_3,
+         upr2 = upr - fledge_int_3,
+         lwr2 = lwr - fledge_int_3)
+
+# grab green up
+gu_pred <- predict_greenup_allGDD(cellz = "725") %>% 
+  dplyr::mutate(cluster = "",
+                Pheno.phase = "Greenup") %>% 
+  dplyr::select(spring.dev, cluster, cell, year, FFD, fit, upr, lwr, Pheno.phase)
+gu_int <- filter(gu_pred, spring.dev == 0)$fit
+gu_pred <- gu_pred %>% 
+  mutate(fit2 = fit - gu_int,
+         upr2 = upr - gu_int,
+         lwr2 = lwr - gu_int)
+
+# leps
+lep_pred_RE <- predict_lep_allGDD("RE") %>% 
+  mutate(Pheno.phase = "Emergence") %>% 
+  dplyr::rename(cluster = code) %>% 
+  dplyr::select(-uniqObsDays)
+lep_int_RE <- filter(lep_pred_RE, spring.dev == 0)$fit
+lep_pred_RE <- lep_pred_RE %>% 
+  mutate(fit2 = fit - lep_int_RE,
+         upr2 = upr - lep_int_RE,
+         lwr2 = lwr - lep_int_RE)
+
+lep_pred_RP <- predict_lep_allGDD("RP") %>% 
+  mutate(Pheno.phase = "Emergence") %>% 
+  dplyr::rename(cluster = code) %>% 
+  dplyr::select(-uniqObsDays)
+lep_int_RP <- filter(lep_pred_RP, spring.dev == 0)$fit
+lep_pred_RP <- lep_pred_RP %>% 
+  mutate(fit2 = fit - lep_int_RP,
+         upr2 = upr - lep_int_RP,
+         lwr2 = lwr - lep_int_RP)
+
+lep_pred_RL <- predict_lep_allGDD("RL") %>% 
+  mutate(Pheno.phase = "Emergence") %>% 
+  dplyr::rename(cluster = code) %>% 
+  dplyr::select(-uniqObsDays)
+lep_int_RL <- filter(lep_pred_RL, spring.dev == 0)$fit
+lep_pred_RL <- lep_pred_RL %>% 
+  mutate(fit2 = fit - lep_int_RL,
+         upr2 = upr - lep_int_RL,
+         lwr2 = lwr - lep_int_RL)
+
+## rbind this all together
+tdf <- rbind(gu_pred,
+             fledge_pred_1, fledge_pred_2, fledge_pred_3,
+             lep_pred_RE, lep_pred_RL, lep_pred_RP) %>% 
+  mutate(id = paste(Pheno.phase, cluster))
+
+
+# plot sensitivity
+ggplot() +
+  geom_ribbon(tdf, mapping = aes(x = spring.dev, 
+                                     ymin = lwr2, 
+                                     ymax = upr2,
+                                     fill = id),
+              alpha = 0.2) +
+  geom_smooth(tdf, mapping = aes(x = spring.dev,
+                                     y = fit2,
+                                     color = id),
+               method = "lm") +
+  scale_color_manual(values = c(
+    rev(c("#3E92CC", "#2A628F", "#13293D")),
+    "#F95738", "#EE964B", "#F4D35E",
+    "forest green"
+  )) +
+  scale_fill_manual(values = c(
+    rev(c("#3E92CC", "#2A628F", "#13293D")),
+    "#F95738", "#EE964B", "#F4D35E",
+    "forest green"
+  )) +
+  theme_bw()
+
+
+
+
+
+
+
+
+
+
 
 x = c(-100:100)
 
@@ -357,39 +473,18 @@ fledge_sens <- ggplot() +
 
 ggsave(filename = "figures/fledge_sensitivity.png", plot = fledge_sens, width = 7.5, height = 4)
 
-# get redids
-lep_resid <- resid(t_leps)
-head(t_leps)
-t_leps <- resids <- t_leps %>%
-mutate(resids = t_leps)
-leps_resids <- leps_gdd %>%
-mutate(resids = t_leps)
-leps_resids <- leps_gdd %>%
-mutate(resids = lep_resid)
 ## get resids
-lep_resid <- resid(t_leps)
+lep_r <- resid(t_leps1)
 leps_resids <- leps_gdd %>%
 mutate(resids = lep_r)
-## get resids
-lep_r <- resid(t_leps)
-leps_resids <- leps_gdd %>%
-mutate(resids = lep_r)
-arr_r <- resids(t_arr)
-arr_r <- resid(t_arr)
-t_ar
-arr_r <- resid(t_ar)
-arr_resids <- arr_gdd_pc_group %>%
-mutate(resids = arr_r)
-arr_gdd_pc_group
-arr_resids <- as.data.frame(arr_gdd_pc_group) %>%
-mutate(resids = arr_r)
-fledge_r <- resid(t_fledge)
+
+fledge_r <- resid(t_fledge1)
 fledge_resids <- as.data.frame(fledge_gdd_pc_group) %>%
 mutate(resids = fledge_r)
+
 green_r <- resid(t_gu)
 green_resids <- as.data.frame(greenup) %>%
 mutate(resids = green_r)
-head(green_resids)
 
 #Temporal residuals
 leps_r_p <- ggplot(leps_resids, mapping = aes(x = year, y = resids)) +
@@ -826,3 +921,81 @@ cp <- plot_grid(p7_low, p7_mid, p7,
 
 ggsave(filename = "figures/leps_difference.png", plot = cp,
        width = 12, height = 8)
+
+
+# plotting the delta values
+
+rest <- st_join(leps_fig_RE_high_sf, leps_fig_RE_low_sf, by = "cell") %>% 
+  mutate(delta = Difference.y - Difference.x)
+
+re_delta <- ggplot() +
+  geom_sf(rest, mapping = aes(fill = delta)) +
+  scale_fill_gradient2(limits = c(-50,37)) +
+  ggtitle("Eggs") +
+  theme_bw()
+
+rlst <- st_join(leps_fig_RL_high_sf, leps_fig_RL_low_sf, by = "cell") %>% 
+  mutate(delta = Difference.y - Difference.x)
+
+rl_delta <- ggplot() +
+  geom_sf(rlst, mapping = aes(fill = delta)) +
+  scale_fill_gradient2(limits = c(-50,37)) +
+  ggtitle("Larvae") +
+  theme_bw()
+
+rpst <- st_join(leps_fig_RP_high_sf, leps_fig_RP_low_sf, by = "cell") %>% 
+  mutate(delta = Difference.y - Difference.x)
+
+rp_delta <- ggplot() +
+  geom_sf(rpst, mapping = aes(fill = delta)) +
+  scale_fill_gradient2(limits = c(-50,37)) +
+  ggtitle("Pupae") +
+  theme_bw()
+
+## bird time
+f1st <- st_join(fledge_fig_c1_high_sf, fledge_fig_c1_low_sf, by = "cell") %>% 
+  mutate(delta = Difference.y - Difference.x)
+
+f1_delta <- ggplot() +
+  geom_sf(f1st, mapping = aes(fill = delta)) +
+  scale_fill_gradient2(limits = c(-50,37)) +
+  ggtitle("Fledge (C1)") +
+  theme_bw()
+
+
+f2st <- st_join(fledge_fig_c2_high_sf, fledge_fig_c2_low_sf, by = "cell") %>% 
+  mutate(delta = Difference.y - Difference.x)
+
+f2_delta <- ggplot() +
+  geom_sf(f2st, mapping = aes(fill = delta)) +
+  scale_fill_gradient2(limits = c(-50,37)) +
+  ggtitle("Fledge (C2)") +
+  theme_bw()
+
+f3st <- st_join(fledge_fig_c3_high_sf, fledge_fig_c3_low_sf, by = "cell") %>% 
+  mutate(delta = Difference.y - Difference.x)
+
+f3_delta <- ggplot() +
+  geom_sf(f3st, mapping = aes(fill = delta)) +
+  scale_fill_gradient2(limits = c(-50,37)) +
+  ggtitle("Fledge (C3)") +
+  theme_bw()
+
+## combine birds and leps
+
+ga <- ggpubr::ggarrange(f1_delta, f2_delta, f3_delta,
+                         re_delta, rl_delta, rp_delta,
+                         nrow = 2 , ncol = 3,
+                        common.legend = TRUE, legend = "right")
+
+ga
+
+ggsave(ga, filename = "figures/delta_phenophase.png")
+
+## grenup time
+us <- rnaturalearth::ne_countries(country = "United States of America", returnclass = "sf") %>% 
+  st_transform(crs = "+proj=aea +lat_1=20 +lat_2=60 +lat_0=40 +lon_0=-96 +x_0=0 +y_0=0 +ellps=GRS80 +datum=NAD83 +units=m +no_defs")
+
+gust <- st_join(gu_pred_high_sf, gu_pred_low_sf, by = "cell") %>% 
+  mutate(delta = Difference.y - Difference.x)
+
