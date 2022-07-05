@@ -1,0 +1,6 @@
+1. For year, does it make sense to be modeling year as a linear term? Year is just an unreliable variable over space, over time, it’s hard to know if we should expect linear relationships ever.
+
+2. I’m not surprised by the weaker relationship of birds to GDD, mostly because birds don’t have a strong physiological growth relationship to GDD. I think the story we *want* to tell is that birds are less sensitive to anomalies in temperature than other trophic levels, so that birds are where the ‘mismatch’ is most likely to occur (e.g., not between leps and plants). I think we can tell that story, but part of me worries that GDD is framing the story too much toward plants and leps. Are we structurally creating the answer we expect through variable choice? (as opposed to, e.g., just doing temperature anomalies). 
+
+
+3. The weakening of the bird relationship toward the north is, at face value, possibly at odds with Casey’s work (i.e., that phenological sensitivity in migration is greatest in the north), but not necessarily so. It could say that there is so much food available in the north that there is no ‘peak’ to optimally match with (which fits with the hypothesis behind why birds migrate north anyway), whereas in the south, there is less food (and/or more competition) so you have to be more nimble in adjusting your breeding to better time it. 
