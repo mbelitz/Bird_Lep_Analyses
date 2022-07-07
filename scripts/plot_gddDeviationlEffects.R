@@ -19,18 +19,18 @@ fledge <- readRDS("data/phenoEstimates/MAPS-fledge-dates-2022-02-22.rds") %>%
                                         replacement = "_"))
 bird_pc <- readRDS("data/bird_PC_vals.rds")
 
-km2 <- bird_pc %>% 
-  dplyr::select(PC1, PC2)
-km <- kmeans(x = km2, centers = 3)
-
-bird_pc <- cbind(bird_pc, km$cluster) %>% 
-  rename(cluster = 4)
-
-ggplot(bird_pc, mapping = aes(x = PC1, y = PC2, color = as.character(cluster))) +
-  geom_point() +
-  theme_bw()
-
-ggsave(filename = "figures/clustering.png")
+#km2 <- bird_pc %>% 
+#  dplyr::select(PC1, PC2)
+#km <- kmeans(x = km2, centers = 3)
+#
+#bird_pc <- cbind(bird_pc, km$cluster) %>% 
+#  rename(cluster = 4)
+#
+#ggplot(bird_pc, mapping = aes(x = PC1, y = PC2, color = as.character(cluster))) +
+#  geom_point() +
+#  theme_bw()
+#
+#ggsave(filename = "figures/clustering.png")
 
 # read in gdd data
 gdd <- data.table::fread('data/gdd_calcs.txt')
@@ -46,16 +46,25 @@ fledge_gdd <- left_join(fledge_gdd, ffp) %>%
 leps_gdd <- left_join(leps, gdd)
 leps_gdd <- left_join(leps_gdd, ffp)
 
+# what years do we cover over this analysis?
+# arrival is 2002-2017
+# fledge is 1992 - 2018
+# leps is 2000-2020
+# greenup is currently from arrival so 
+#2002-2017 should be the dates of the current analyses
+
+
 # add PC based clusters to df
-arr_gdd_pc <- left_join(arr_gdd, bird_pc)
+#arr_gdd_pc <- left_join(arr_gdd, bird_pc)
 #fledge_gdd_pc <- left_join(fledge_gdd, bird_pc, by = "species")
 
 # look into sensitivty of phenometrics to gdd through space and time
 # start with greenup
-greenup <- arr_gdd_pc %>% 
+greenup <- arr_gdd %>% 
   dplyr::distinct(cell, year, .keep_all = T) %>% 
   dplyr::select(cell, year, gr_mn, spring.gdd, summer.gdd, 
-                spring.dev, summer.dev, mean_ffp)
+                spring.dev, summer.dev, mean_ffp) %>% 
+  dplyr::filter(year >= 2002 & year <= 2017)
 greenup$cell <- as.character(greenup$cell)
 # scale greenup dataframe
 greenup_scaled <- greenup %>% 
@@ -66,7 +75,8 @@ greenup_scaled <- greenup %>%
 # deviation greenup model
 gu_m <-  lmer(formula = gr_mn ~ spring.dev + year + mean_ffp +
                 spring.dev:mean_ffp +
-                (1|cell), data = greenup_scaled, na.action = na.fail)
+                (1|cell), data = greenup_scaled,
+              na.action = na.fail, REML = F)
 
 gu_d <- dredge(gu_m)
 
@@ -78,12 +88,13 @@ car::vif(gu_tm)
 
 MuMIn::r.squaredGLMM(gu_tm)
 
+
 plot_model(gu_tm, type = "pred", terms = "spring.dev")
 plot_model(gu_tm, type = "pred", terms = c("year"))
 plot_model(gu_tm, type = "pred", terms = c("mean_ffp"))
 plot_model(gu_tm, type = "pred", terms = c("spring.dev", "mean_ffp"))
 
-gu_gdd_plot <- plot_model(gu_tm, type = "pred", terms = c("spring.dev"))
+gu_gdd_plot <- plot_model(gu_tm, type = "pred", terms = c("spring.dev", "mean_ffp"))
 
 gu_gdd_plot +
   theme_classic() +
@@ -97,9 +108,11 @@ fledge_gdd <- fledge_gdd %>%
          !is.na(spring.dev)) %>% 
   dplyr::select(sci_name, station, year, cell, juv_meanday, 
                 spring.gdd, summer.gdd,
-                spring.dev, summer.dev, PC1, PC2, species, mean_ffp)
+                spring.dev, summer.dev, PC1, PC2, species, mean_ffp) %>% 
+  filter(year >= 2002 & year <= 2017)
 
 head(fledge_gdd)
+
 
 fledge_scaled <- fledge_gdd %>% 
   mutate(spring.dev = scale(spring.dev),
@@ -131,7 +144,7 @@ plot_model(tm_fledge, type = "pred", terms = c("PC1"))
 plot_model(tm_fledge, type = "pred", terms = c("mean_ffp"))
 plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
 
-fledge_gdd_plot <- plot_model(tm_fledge, type = "pred", terms = c("spring.dev"))
+fledge_gdd_plot <- plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
 
 fledge_gdd_plot +
   theme_classic() +
@@ -150,6 +163,7 @@ ggsave("figures/ffp_spring.dev_greenup.png", width = 6, height = 3.5)
 
 
 # there is an important interaction between mean_ffp and spring.dev
+
 ## now lep time
 # deviation model 
 leps_gdd <- leps_gdd %>% 
@@ -159,7 +173,8 @@ leps_gdd <- leps_gdd %>%
          !is.na(year),
          !is.na(cell),
          !is.na(code),
-         !is.na(q5))
+         !is.na(q5)) %>% 
+  filter(year >= 2002 & year <= 2017)
 
 leps_scaled <- leps_gdd %>% 
   mutate(spring.dev = scale(spring.dev),
@@ -176,11 +191,12 @@ leps_m <- lmer(q5 ~ spring.dev + year + mean_ffp +
                  uniqObsDays + code +
                  spring.dev:code +
                  spring.dev:mean_ffp +
+                 year:code +
                  (1|cell), 
-               data = leps_scaled, na.action = na.fail)
+               data = leps_scaled, na.action = na.fail, REML = F)
 
 leps_d <- dredge(leps_m)
-leps_tm <- get.models(leps_d, 3)[[1]]
+leps_tm <- get.models(leps_d, 2)[[1]]
 
 summary(leps_tm)
 car::vif(leps_tm)
@@ -191,7 +207,7 @@ plot_model(leps_tm, type = "pred", terms= "spring.dev")
 plot_model(leps_tm, type = "pred", terms= c("mean_ffp"))
 plot_model(leps_tm, type = "pred", terms= "year")
 
-leps_gdd_plot <- plot_model(leps_tm, type = "pred", terms = c("spring.dev")) 
+leps_gdd_plot <- plot_model(leps_tm, type = "pred", terms = c("spring.dev", "mean_ffp")) 
 
 fledge_gdd_plot 
 leps_gdd_plot
@@ -205,27 +221,63 @@ tdf <- list(
 ) %>% 
   bind_rows()
 
-head(tdf)
+tdf <- tdf %>% 
+  mutate(group2 = rep(-1:1,22))
 
-lep_int <- dplyr::filter(tdf, x == 0, line == "leps")$predicted
-fledge_int <- dplyr::filter(tdf, x == 0, line == "fledge")$predicted
-gu_int <- dplyr::filter(tdf, x == 0, line == "gu")$predicted
+lep_int_north <- dplyr::filter(tdf, x == 0 & group2 == -1, line == "leps")$predicted
+lep_int_mid <- dplyr::filter(tdf, x == 0 & group2 == 0, line == "leps")$predicted
+lep_int_south <- dplyr::filter(tdf, x == 0 & group2 == 1, line == "leps")$predicted
+
+fledge_int_north <- dplyr::filter(tdf, x == 0 & group2 == -1, line == "fledge")$predicted
+fledge_int_mid <- dplyr::filter(tdf, x == 0 & group2 == 0, line == "fledge")$predicted
+fledge_int_south <- dplyr::filter(tdf, x == 0 & group2 == 1, line == "fledge")$predicted
+
+gu_int_north <- dplyr::filter(tdf, x == 0 & group2 == -1, line == "gu")$predicted
+gu_int_mid<- dplyr::filter(tdf, x == 0 & group2 == 0, line == "gu")$predicted
+gu_int_south <- dplyr::filter(tdf, x == 0 & group2 == 1, line == "gu")$predicted
+
+
 
 tdf <- tdf %>% 
   mutate(predicted2 = case_when(
-    line == "gu" ~ predicted - gu_int,
-    line == "fledge" ~ predicted - fledge_int,
-    line == "leps" ~ predicted - lep_int
+    line == "gu" & group2 == -1 ~ predicted - gu_int_north,
+    line == "gu" & group2 == 0 ~ predicted - gu_int_mid,
+    line == "gu" & group2 == 1 ~ predicted - gu_int_south,
+    
+    line == "fledge" & group2 == -1 ~ predicted - fledge_int_north,
+    line == "fledge" & group2 == 0 ~ predicted - fledge_int_mid,
+    line == "fledge" & group2 == 1 ~ predicted - fledge_int_south,
+    
+    line == "leps" & group2 == -1 ~ predicted - lep_int_north,
+    line == "leps" & group2 == 0 ~ predicted - lep_int_mid,
+    line == "leps" & group2 == 1 ~ predicted - lep_int_south,
+    
   )) %>% 
   mutate(conf.low2 = case_when(
-    line == "gu" ~ conf.low - gu_int,
-    line == "fledge" ~ conf.low - fledge_int,
-    line == "leps" ~ conf.low - lep_int
+    line == "gu" & group2 == -1 ~ conf.low - gu_int_north,
+    line == "gu" & group2 == 0 ~ conf.low - gu_int_mid,
+    line == "gu" & group2 == 1 ~ conf.low - gu_int_south,
+    
+    line == "fledge" & group2 == -1 ~ conf.low - fledge_int_north,
+    line == "fledge" & group2 == 0 ~ conf.low - fledge_int_mid,
+    line == "fledge" & group2 == 1 ~ conf.low - fledge_int_south,
+    
+    line == "leps" & group2 == -1 ~ conf.low - lep_int_north,
+    line == "leps" & group2 == 0 ~ conf.low - lep_int_mid,
+    line == "leps" & group2 == 1 ~ conf.low - lep_int_south
   )) %>% 
   mutate(conf.high2 = case_when(
-    line == "gu" ~ conf.high - gu_int,
-    line == "fledge" ~ conf.high - fledge_int,
-    line == "leps" ~ conf.high - lep_int
+    line == "gu" & group2 == -1 ~ conf.high - gu_int_north,
+    line == "gu" & group2 == 0 ~ conf.high - gu_int_mid,
+    line == "gu" & group2 == 1 ~ conf.high - gu_int_south,
+    
+    line == "fledge" & group2 == -1 ~ conf.high - fledge_int_north,
+    line == "fledge" & group2 == 0 ~ conf.high - fledge_int_mid,
+    line == "fledge" & group2 == 1 ~ conf.high - fledge_int_south,
+    
+    line == "leps" & group2 == -1 ~ conf.high - lep_int_north,
+    line == "leps" & group2 == 0 ~ conf.high - lep_int_mid,
+    line == "leps" & group2 == 1 ~ conf.high - lep_int_south
   )) 
 
 
@@ -237,34 +289,52 @@ gdd_mean_leps <- mean(leps_gdd$spring.dev)
 gdd_sd_fledge <- sd(fledge_gdd$spring.dev)
 gdd_mean_fledge <- mean(fledge_gdd$spring.dev)
 
+# what are the sd for mean_ffp for greenup and lep dfs?
+ffp_sd_gu <- sd(greenup$mean_ffp)
+ffp_mean_gu <- mean(greenup$mean_ffp)
+ffp_sd_leps <- sd(leps_gdd$mean_ffp)
+ffp_mean_leps <- mean(leps_gdd$mean_ffp)
+ffp_sd_fledge <- sd(fledge_gdd$mean_ffp)
+ffp_mean_fledge <- mean(fledge_gdd$mean_ffp)
+
+
 head(tdf)
 
 tdf2 <- tdf %>% 
   mutate(x2 = case_when(line == "gu" ~ (x * gdd_sd_gu) + gdd_mean_gu,
                         line == "leps" ~ (x * gdd_sd_leps) + gdd_mean_leps,
-                        line == "fledge" ~ (x * gdd_sd_fledge) + gdd_mean_fledge))
+                        line == "fledge" ~ (x * gdd_sd_fledge) + gdd_mean_fledge)) %>% 
+  mutate(
+    group2 = case_when(
+      group2 == 1 ~ "Southerly",
+      group2 == -1 ~ "Northerly",
+      group2 == 0 ~ "Central"),
+    group2 = factor(group2, levels = c("Southerly", "Central", "Northerly"))
+    )
 
 
 
-ggplot() +
-  geom_ribbon(filter(tdf2, line != "gu"),
-              mapping = aes(x = x2, ymin = conf.low2, ymax = conf.high2, 
-                            fill = interaction(line,group)), color = NA, alpha = 0.2) +
-  geom_line(filter(tdf2, line != "gu"),
-            mapping = aes(x = x2, y=predicted2, color = interaction(line,group)),
-            size = 1.0) +
-  geom_ribbon(filter(tdf2, line == "gu"),
-              mapping = aes(x = x2, ymin = conf.low2, ymax = conf.high2, 
-                            fill = interaction(line,group)), color = NA, alpha = 0.2) +
-  geom_line(filter(tdf2, line == "gu"),
-            mapping = aes(x = x2, y=predicted2, color = interaction(line,group)),
-            linetype = "dashed", size = 1.2) +
-  scale_color_manual(values = c("#2A628F","forest green", "#EE964B"),
-                     labels = c("Fledge (Birds)", "Greenup (Plants)", "Emergence (Leps)")) +
-  scale_fill_manual(values = c("#2A628F","forest green", "#EE964B"),
-                    labels = c("Fledge (Birds)", "Greenup (Plants)", "Emergence (Leps)"))+
+ggplot(tdf2, mapping = aes(x = x2)) +
+  geom_ribbon(mapping = aes(x = x2, ymin = conf.low2, ymax = conf.high2, 
+                            fill = line), color = NA, alpha = 0.08) +
+  geom_line(mapping = aes(x = x2, y=predicted2, color = line, linetype = line),  size = 1.2) +
+  scale_linetype_manual(values = c(2,1,1), 
+                        breaks = c("gu", "leps", "fledge"),
+                        labels = c("Greenup (Plants)", "Emergence (Leps)", "Fledge (Birds)"),
+                        guide = "none"
+                                   ) +
+  scale_color_manual(values = c("#316119","#1F8690", "#A73EBF"),
+                     breaks = c("gu", "leps", "fledge"),
+                     labels = c("Greenup (Plants)", "Emergence (Leps)", "Fledge (Birds)")) +
+  scale_fill_manual(values = c("#316119","#1F8690", "#A73EBF"),
+                    breaks = c("gu", "leps", "fledge"),
+                    labels = c("Greenup (Plants)", "Emergence (Leps)", "Fledge (Birds)")) +
   labs(color = "", fill = "",
-       x = "GDD anomaly", y = "Pheno-phase") +
-  theme_bw()
+       x = "GDD anomaly", y = "Phenology anomaly") +
+  #scale_x_continuous(limits = c(-150,150)) +
+  theme_bw() +
+  guides(linetype = element_blank()) +
+  facet_wrap(~group2)
 
-ggsave(filename = "figures/gddDeviationEffects.png", width = 6, height = 3.5)
+
+ggsave(filename = "figures/gddDeviationEffects.png", width = 8, height = 3.5)
