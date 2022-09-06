@@ -8,6 +8,7 @@ library(lme4)
 library(lmerTest)
 library(sjPlot)
 library(merTools)
+library(fpp2)
 
 # bird data
 ## read in phenometrics
@@ -36,15 +37,19 @@ bird_pc <- readRDS("data/bird_PC_vals.rds")
 gdd <- data.table::fread('data/gdd_calcs.txt')
 # read in frost free period data
 ffp <- read.csv("Outputs/frostFreePeriod_byHex.csv")
+# read in annual temp data
+temp <- read.csv("Outputs/temp_byHex.csv")
 
 # combine phenometrics with gdd & ffp
 arr_gdd <- left_join(arr, gdd)
 arr_gdd <- left_join(arr_gdd, ffp)
+arr_gdd <- left_join(arr_gdd, temp)
 fledge_gdd <- left_join(fledge,gdd)
 fledge_gdd <- left_join(fledge_gdd, ffp) %>% 
   filter(!is.na(mean_ffp))
 leps_gdd <- left_join(leps, gdd)
 leps_gdd <- left_join(leps_gdd, ffp)
+leps_gdd <- left_join(leps_gdd, temp)
 
 # what years do we cover over this analysis?
 # arrival is 2002-2017
@@ -69,11 +74,10 @@ greenup$cell <- as.character(greenup$cell)
 # scale greenup dataframe
 greenup_scaled <- greenup %>% 
   mutate(spring.dev = scale(spring.dev),
-         year = scale(year),
          mean_ffp = scale(mean_ffp))
 
 # deviation greenup model
-gu_m <-  lmer(formula = gr_mn ~ spring.dev + year + mean_ffp +
+gu_m <-  lmer(formula = gr_mn ~ spring.dev + mean_ffp +
                 spring.dev:mean_ffp +
                 (1|cell), data = greenup_scaled,
               na.action = na.fail, REML = F)
@@ -90,7 +94,6 @@ MuMIn::r.squaredGLMM(gu_tm)
 
 
 plot_model(gu_tm, type = "pred", terms = "spring.dev")
-plot_model(gu_tm, type = "pred", terms = c("year"))
 plot_model(gu_tm, type = "pred", terms = c("mean_ffp"))
 plot_model(gu_tm, type = "pred", terms = c("spring.dev", "mean_ffp"))
 
@@ -99,6 +102,26 @@ gu_gdd_plot <- plot_model(gu_tm, type = "pred", terms = c("spring.dev", "mean_ff
 gu_gdd_plot +
   theme_classic() +
   labs(x = "GDD anomoly", y = "Greenup") +
+  ggtitle("")
+
+# get ACF for green up plot
+resids <- residuals(gu_tm)
+resid_greenup <- greenup_scaled %>% 
+  mutate(resid = resids)
+
+gu_resid_plot <- ggplot(resid_greenup, mapping = aes(x = year, y = resid)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Year", y = "Residual")+
+  ggtitle("Greenup") +
+  theme_bw()
+
+resid_greenup_sort <- resid_greenup[order(resid_greenup$year),]
+
+acfPlot <- acf(resid_greenup_sort$resid) 
+
+gu_acf_plot <- ggAcf(resid_greenup_sort$resid) +
+  theme_bw() +
   ggtitle("")
 
 ## now get this for fledge and leps
@@ -113,30 +136,28 @@ fledge_gdd <- fledge_gdd %>%
 
 head(fledge_gdd)
 
-
-fledge_scaled <- fledge_gdd %>% 
+fledge_scaled <- ungroup(fledge_gdd) %>% 
   mutate(spring.dev = scale(spring.dev),
-         year = scale(year),
-         mean_ffp = scale(mean_ffp)) %>% 
+         mean_ffp= scale(mean_ffp)) %>% 
   filter(!is.na(juv_meanday),
          !is.na(spring.gdd),
          !is.na(spring.dev),
          !is.na(year)) 
 
-# deviation arrival model
-fledge_m <- lmer(juv_meanday ~ spring.dev + year + mean_ffp +
+# deviation fledge model
+fledge_m <- lmer(juv_meanday ~ spring.dev + mean_ffp +
                    PC1 +
                    spring.dev:mean_ffp +
                    spring.dev:PC1 +
-                   year:PC1 +
                    (1|station) + (1|sci_name),
-                 data = fledge_scaled, na.action = na.fail)
+                 data = fledge_scaled, na.action = na.fail, REML = F)
 
 #dredge
 fledge_d <- dredge(fledge_m)
 tm_fledge <- get.models(fledge_d, subset = 1)[[1]]
 
 summary(tm_fledge)
+car::vif(tm_fledge)
 MuMIn::r.squaredGLMM(tm_fledge)
 
 plot_model(tm_fledge, type = "pred", terms = "spring.dev")
@@ -164,6 +185,26 @@ ggsave("figures/ffp_spring.dev_greenup.png", width = 6, height = 3.5)
 
 # there is an important interaction between mean_ffp and spring.dev
 
+# get ACF for fledge plot
+f_resid <- residuals(tm_fledge) %>% as.numeric()
+resid_fledge <- ungroup(fledge_scaled) %>% 
+  mutate(resid = f_resid)
+
+fledge_resid_plot <- ggplot(resid_fledge, mapping = aes(x = year, y = resid)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Year", y = "Residual")+
+  ggtitle("Fledge") +
+  theme_bw()
+
+resid_fledge_sort <- resid_fledge[order(resid_fledge$year),]
+
+acfPlot <- acf(resid_fledge_sort$resid) 
+
+fledge_acf_plot <- ggAcf(resid_fledge_sort$resid) +
+  theme_bw() +
+  ggtitle("")
+
 ## now lep time
 # deviation model 
 leps_gdd <- leps_gdd %>% 
@@ -178,7 +219,6 @@ leps_gdd <- leps_gdd %>%
 
 leps_scaled <- leps_gdd %>% 
   mutate(spring.dev = scale(spring.dev),
-         year = scale(year),
          mean_ffp = scale(mean_ffp),
          uniqObsDays = scale(uniqObsDays)) 
 
@@ -187,11 +227,10 @@ leps_scaled <- leps_gdd %>%
 with(leps_scaled, table(code, year))
 with(leps_scaled, table(code, spring.dev))
 
-leps_m <- lmer(q5 ~ spring.dev + year + mean_ffp +
+leps_m <- lmer(q5 ~ spring.dev + mean_ffp +
                  uniqObsDays + code +
                  spring.dev:code +
                  spring.dev:mean_ffp +
-                 year:code +
                  (1|cell), 
                data = leps_scaled, na.action = na.fail, REML = F)
 
@@ -205,9 +244,35 @@ MuMIn::r.squaredGLMM(leps_tm)
 
 plot_model(leps_tm, type = "pred", terms= "spring.dev")
 plot_model(leps_tm, type = "pred", terms= c("mean_ffp"))
-plot_model(leps_tm, type = "pred", terms= "year")
 
 leps_gdd_plot <- plot_model(leps_tm, type = "pred", terms = c("spring.dev", "mean_ffp")) 
+
+# get ACF for leps plot
+resids_l <- residuals(leps_tm)
+resid_leps <- leps_scaled %>% 
+  mutate(resid = resids_l)
+
+leps_resid_plot <- ggplot(resid_leps, mapping = aes(x = year, y = resid)) +
+  geom_point(aes(color = code)) +
+  geom_smooth(aes(color = code), method = "lm") +
+  labs(x = "Year", y = "Residual")+
+  theme_bw()
+
+#no grouping
+leps_resid_plot <- ggplot(resid_leps, mapping = aes(x = year, y = resid)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(x = "Year", y = "Residual")+
+  ggtitle('Leps') +
+  theme_bw()
+
+resid_leps_sort <- resid_leps[order(resid_leps$year),]
+
+acfPlot <- acf(resid_leps_sort$resid) 
+
+leps_acf_plot <- ggAcf(resid_leps_sort$resid) +
+  theme_bw() +
+  ggtitle("")
 
 fledge_gdd_plot 
 leps_gdd_plot
@@ -314,7 +379,7 @@ tdf2 <- tdf %>%
 
 
 
-ggplot(tdf2, mapping = aes(x = x2)) +
+gdd_plot <- ggplot(tdf2, mapping = aes(x = x2)) +
   geom_ribbon(mapping = aes(x = x2, ymin = conf.low2, ymax = conf.high2, 
                             fill = line), color = NA, alpha = 0.08) +
   geom_line(mapping = aes(x = x2, y=predicted2, color = line, linetype = line),  size = 1.2) +
@@ -333,8 +398,38 @@ ggplot(tdf2, mapping = aes(x = x2)) +
        x = "GDD anomaly", y = "Phenology anomaly") +
   #scale_x_continuous(limits = c(-150,150)) +
   theme_bw() +
-  guides(linetype = element_blank()) +
+  guides(linetype = element_blank(),
+         color=guide_legend(override.aes=list(fill=NA))) +
+  theme(legend.position = "bottom") +
   facet_wrap(~group2)
 
+gdd_plot
 
 ggsave(filename = "figures/gddDeviationEffects.png", width = 8, height = 3.5)
+
+### get temporal residuals
+cp <- cowplot::plot_grid(gu_resid_plot, leps_resid_plot, fledge_resid_plot, 
+                         gu_acf_plot, leps_acf_plot, fledge_acf_plot)
+
+cp
+
+ggsave(filename = "figures/gddResiduals.png", plot = cp,
+       width = 12, height = 8)
+
+
+# source intro conceptual figure
+source("scripts/generate_introConceptualFigure.R")
+
+# combine all the plots together of gdd dev and 
+gdd_plot
+
+library(ggpubr)
+
+cp <- ggarrange(pp, gdd_plot, nrow = 2, labels = c("Hypotheses", "Emperical"),
+                common.legend = T, 
+                label.x = -0.01, 
+                label.y = 1.01)
+cp
+
+ggsave(filename = "figures/Figure1.png", width = 8, height = 7)
+
