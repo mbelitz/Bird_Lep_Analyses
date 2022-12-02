@@ -39,7 +39,15 @@ gdd <- data.table::fread('data/gdd_calcs.txt')
 ffp <- read.csv("Outputs/frostFreePeriod_byHex.csv")
 # read in annual temp data
 temp <- read.csv("Outputs/temp_byHex.csv")
-
+# caclulate baseline from 2016-2016
+temp_baselineYears <- temp %>% 
+  filter(year %in% 2016:2019)
+tempBaseline <- temp_baselineYears %>% 
+  group_by(cell) %>% 
+  summarise(baseline_temp = mean(mean_temp))
+temp <- left_join(temp, tempBaseline)
+temp <- temp %>% 
+  mutate(temp.dev = mean_temp - baseline_temp)
 # combine phenometrics with gdd & ffp
 arr_gdd <- left_join(arr, gdd)
 arr_gdd <- left_join(arr_gdd, ffp)
@@ -47,6 +55,7 @@ arr_gdd <- left_join(arr_gdd, temp)
 fledge_gdd <- left_join(fledge,gdd)
 fledge_gdd <- left_join(fledge_gdd, ffp) %>% 
   filter(!is.na(mean_ffp))
+fledge_gdd <- left_join(fledge_gdd, temp)
 leps_gdd <- left_join(leps, gdd)
 leps_gdd <- left_join(leps_gdd, ffp)
 leps_gdd <- left_join(leps_gdd, temp)
@@ -58,7 +67,6 @@ leps_gdd <- left_join(leps_gdd, temp)
 # greenup is currently from arrival so 
 #2002-2017 should be the dates of the current analyses
 
-
 # add PC based clusters to df
 #arr_gdd_pc <- left_join(arr_gdd, bird_pc)
 #fledge_gdd_pc <- left_join(fledge_gdd, bird_pc, by = "species")
@@ -67,18 +75,19 @@ leps_gdd <- left_join(leps_gdd, temp)
 # start with greenup
 greenup <- arr_gdd %>% 
   dplyr::distinct(cell, year, .keep_all = T) %>% 
-  dplyr::select(cell, year, gr_mn, spring.gdd, summer.gdd, 
-                spring.dev, summer.dev, mean_ffp) %>% 
+  dplyr::select(cell, year, gr_mn, spring.gdd, summer.gdd,
+                summer.dev, mean_ffp, temp.dev) %>% 
   dplyr::filter(year >= 2002 & year <= 2017)
 greenup$cell <- as.character(greenup$cell)
 # scale greenup dataframe
 greenup_scaled <- greenup %>% 
-  mutate(spring.dev = scale(spring.dev),
-         mean_ffp = scale(mean_ffp))
+  mutate(temp.dev = scale(temp.dev),
+         mean_ffp = scale(mean_ffp),
+         temp.dev = scale(temp.dev))
 
 # deviation greenup model
-gu_m <-  lmer(formula = gr_mn ~ spring.dev + mean_ffp +
-                spring.dev:mean_ffp +
+gu_m <-  lmer(formula = gr_mn ~ temp.dev + mean_ffp +
+                temp.dev:mean_ffp +
                 (1|cell), data = greenup_scaled,
               na.action = na.fail, REML = F)
 
@@ -93,15 +102,15 @@ car::vif(gu_tm)
 MuMIn::r.squaredGLMM(gu_tm)
 
 
-plot_model(gu_tm, type = "pred", terms = "spring.dev")
+plot_model(gu_tm, type = "pred", terms = "temp.dev")
 plot_model(gu_tm, type = "pred", terms = c("mean_ffp"))
-plot_model(gu_tm, type = "pred", terms = c("spring.dev", "mean_ffp"))
+plot_model(gu_tm, type = "pred", terms = c("temp.dev", "mean_ffp"))
 
-gu_gdd_plot <- plot_model(gu_tm, type = "pred", terms = c("spring.dev", "mean_ffp"))
+gu_gdd_plot <- plot_model(gu_tm, type = "pred", terms = c("temp.dev", "mean_ffp"))
 
 gu_gdd_plot +
   theme_classic() +
-  labs(x = "GDD anomoly", y = "Greenup") +
+  labs(x = "Temperature anomoly", y = "Greenup") +
   ggtitle("")
 
 # get ACF for green up plot
@@ -128,27 +137,27 @@ gu_acf_plot <- ggAcf(resid_greenup_sort$resid) +
 fledge_gdd <- fledge_gdd %>% 
   filter(!is.na(juv_meanday),
          !is.na(spring.gdd),
-         !is.na(spring.dev)) %>% 
+         !is.na(temp.dev)) %>% 
   dplyr::select(sci_name, station, year, cell, juv_meanday, 
                 spring.gdd, summer.gdd,
-                spring.dev, summer.dev, PC1, PC2, species, mean_ffp) %>% 
+                temp.dev, summer.dev, PC1, PC2, species, mean_ffp) %>% 
   filter(year >= 2002 & year <= 2017)
 
 head(fledge_gdd)
 
 fledge_scaled <- fledge_gdd %>% 
-  mutate(spring.dev = scale(spring.dev),
+  mutate(temp.dev = scale(temp.dev),
          mean_ffp = scale(mean_ffp)) %>% 
   filter(!is.na(juv_meanday),
          !is.na(spring.gdd),
-         !is.na(spring.dev),
+         !is.na(temp.dev),
          !is.na(year)) 
 
 # deviation fledge model
-fledge_m <- lmer(juv_meanday ~ spring.dev + mean_ffp +
+fledge_m <- lmer(juv_meanday ~ temp.dev + mean_ffp +
                    PC1 +
-                   spring.dev:mean_ffp +
-                   spring.dev:PC1 +
+                   temp.dev:mean_ffp +
+                   temp.dev:PC1 +
                    (1|station) + (1|sci_name),
                  data = fledge_scaled, na.action = na.fail, REML = F)
 
@@ -160,19 +169,19 @@ summary(tm_fledge)
 car::vif(tm_fledge)
 MuMIn::r.squaredGLMM(tm_fledge)
 
-plot_model(tm_fledge, type = "pred", terms = "spring.dev")
+plot_model(tm_fledge, type = "pred", terms = "temp.dev")
 plot_model(tm_fledge, type = "pred", terms = c("PC1"))
 plot_model(tm_fledge, type = "pred", terms = c("mean_ffp"))
-plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
+plot_model(tm_fledge, type = "pred", terms = c("temp.dev", "mean_ffp"))
 
-fledge_gdd_plot <- plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
+fledge_gdd_plot <- plot_model(tm_fledge, type = "pred", terms = c("temp.dev", "mean_ffp"))
 
 fledge_gdd_plot +
   theme_classic() +
   labs(x = "GDD anomaly", y = "Greenup") +
   ggtitle("")
 
-fp_int <- plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
+fp_int <- plot_model(tm_fledge, type = "pred", terms = c("temp.dev", "mean_ffp"))
 
 fp_int +
   theme_classic() +
@@ -180,10 +189,10 @@ fp_int +
        color = "Frost free period", fill = "Frost free period") +
   ggtitle("")
 
-ggsave("figures/ffp_spring.dev_greenup.png", width = 6, height = 3.5)
+ggsave("figures/ffp_temp.dev_greenup.png", width = 6, height = 3.5)
 
 
-# there is an important interaction between mean_ffp and spring.dev
+# there is an important interaction between mean_ffp and temp.dev
 
 # get ACF for fledge plot
 f_resid <- residuals(tm_fledge) %>% as.numeric()
@@ -208,7 +217,7 @@ fledge_acf_plot <- ggAcf(resid_fledge_sort$resid) +
 ## now lep time
 # deviation model 
 leps_gdd <- leps_gdd %>% 
-  filter(!is.na(spring.dev),
+  filter(!is.na(temp.dev),
          !is.na(year),
          !is.na(mean_ffp),
          !is.na(year),
@@ -218,34 +227,35 @@ leps_gdd <- leps_gdd %>%
   filter(year >= 2002 & year <= 2017)
 
 leps_scaled <- leps_gdd %>% 
-  mutate(spring.dev = scale(spring.dev),
+  mutate(temp.dev = scale(temp.dev),
          mean_ffp = scale(mean_ffp),
          uniqObsDays = scale(uniqObsDays)) 
 
 # note that we can't look at the interaction between code and year because there 
 # is not enough RE data in early years
 with(leps_scaled, table(code, year))
-with(leps_scaled, table(code, spring.dev))
+with(leps_scaled, table(code, temp.dev))
 
-leps_m <- lmer(q5 ~ spring.dev + mean_ffp +
+leps_m <- lmer(q5 ~ temp.dev + mean_ffp +
                  uniqObsDays + code +
-                 spring.dev:code +
-                 spring.dev:mean_ffp +
+                 temp.dev:code +
+                 temp.dev:mean_ffp +
                  (1|cell), 
                data = leps_scaled, na.action = na.fail, REML = F)
 
 leps_d <- dredge(leps_m)
-leps_tm <- get.models(leps_d, 2)[[1]]
+leps_tm <- get.models(leps_d, 3)[[1]]
 
 summary(leps_tm)
+
 car::vif(leps_tm)
 summary(leps_tm)
 MuMIn::r.squaredGLMM(leps_tm)
 
-plot_model(leps_tm, type = "pred", terms= "spring.dev")
+plot_model(leps_tm, type = "pred", terms= "temp.dev")
 plot_model(leps_tm, type = "pred", terms= c("mean_ffp"))
 
-leps_gdd_plot <- plot_model(leps_tm, type = "pred", terms = c("spring.dev", "mean_ffp")) 
+leps_gdd_plot <- plot_model(leps_tm, type = "pred", terms = c("temp.dev", "mean_ffp")) 
 
 # get ACF for leps plot
 resids_l <- residuals(leps_tm)
@@ -287,7 +297,7 @@ tdf <- list(
   bind_rows()
 
 tdf <- tdf %>% 
-  mutate(group2 = rep(-1:1,22))
+  mutate(group2 = rep(-1:1,24))
 
 lep_int_north <- dplyr::filter(tdf, x == 0 & group2 == -1, line == "leps")$predicted
 lep_int_mid <- dplyr::filter(tdf, x == 0 & group2 == 0, line == "leps")$predicted
@@ -347,12 +357,12 @@ tdf <- tdf %>%
 
 
 # what are the sd for gdd.dev for greenup and lep dfs?
-gdd_sd_gu <- sd(greenup$spring.dev)
-gdd_mean_gu <- mean(greenup$spring.dev)
-gdd_sd_leps <- sd(leps_gdd$spring.dev)
-gdd_mean_leps <- mean(leps_gdd$spring.dev)
-gdd_sd_fledge <- sd(fledge_gdd$spring.dev)
-gdd_mean_fledge <- mean(fledge_gdd$spring.dev)
+gdd_sd_gu <- sd(greenup$temp.dev)
+gdd_mean_gu <- mean(greenup$temp.dev)
+gdd_sd_leps <- sd(leps_gdd$temp.dev)
+gdd_mean_leps <- mean(leps_gdd$temp.dev)
+gdd_sd_fledge <- sd(fledge_gdd$temp.dev)
+gdd_mean_fledge <- mean(fledge_gdd$temp.dev)
 
 # what are the sd for mean_ffp for greenup and lep dfs?
 ffp_sd_gu <- sd(greenup$mean_ffp)
@@ -395,14 +405,14 @@ ggplot(tdf2, mapping = aes(x = x2)) +
                     breaks = c("gu", "leps", "fledge"),
                     labels = c("Greenup (Plants)", "Emergence (Leps)", "Fledge (Birds)")) +
   labs(color = "", fill = "",
-       x = "GDD anomaly", y = "Phenology anomaly") +
+       x = "Temperature anomaly", y = "Phenology anomaly") +
   #scale_x_continuous(limits = c(-150,150)) +
   theme_bw() +
   guides(linetype = element_blank()) +
   facet_wrap(~group2)
 
 
-ggsave(filename = "figures/gddDeviationEffects.png", width = 8, height = 3.5)
+ggsave(filename = "figures/tempDeviationEffects.png", width = 8, height = 3.5)
 
 ### get temporal residuals
 cp <- cowplot::plot_grid(gu_resid_plot, leps_resid_plot, fledge_resid_plot, 
@@ -410,5 +420,5 @@ cp <- cowplot::plot_grid(gu_resid_plot, leps_resid_plot, fledge_resid_plot,
 
 cp
 
-ggsave(filename = "figures/gddResiduals.png", plot = cp,
+ggsave(filename = "figures/tempResiduals.png", plot = cp,
        width = 12, height = 8)
