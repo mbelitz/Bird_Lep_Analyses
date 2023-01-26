@@ -133,6 +133,49 @@ gu_acf_plot <- ggAcf(resid_greenup_sort$resid) +
   theme_bw() +
   ggtitle("")
 
+## spatial autocorrelation and qqplot of green-up model
+hist(resids)
+qqnorm(resids)
+qqline(resids)
+
+# read in 
+r <- raster("data/bioclim/Normal_1991_2020_FFP.tif")
+hex_sf <- raster::shapefile("data/hex_grid_crop.shp") %>% 
+  st_as_sf()
+hex_sf_ea <- st_transform(hex_sf, crs = crs(r))
+hex_coords <- st_coordinates(st_centroid(hex_sf_ea))
+hex_coords_df <- data.frame(cell = hex_sf_ea$cell, 
+                            X = hex_coords[,1],
+                            Y = hex_coords[,2])
+
+resid_greenup <- left_join(resid_greenup, hex_coords_df)
+
+library(ncf)
+ncf_fit <- correlog(x = resid_greenup$X, y = resid_greenup$Y, z = resid_greenup$resid,
+                    increment = 250000, latlon = F, resamp = 100)
+plot(ncf_fit)
+
+ncf_gu_df <- data.frame(distance = ncf_fit$mean.of.class, 
+                      correlation = ncf_fit$correlation,
+                      p.value = if_else(ncf_fit$p < 0.025, 
+                                        true = "Sig",
+                                        false = "Not Sig")) %>% 
+  filter(distance < 5000000 & distance > 1)
+
+
+gu_correlogram_plot <- ggplot() +
+  geom_line(ncf_gu_df,
+            mapping = aes(x = distance, y = correlation)) +
+  geom_point(ncf_gu_df,
+             mapping = aes(x = distance, y = correlation, fill = p.value),
+             size = 3, shape = 21, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("white", "black")) +
+  labs(x = "Distance", y = "Moran's I", fill = "P-Value") +
+  theme_classic()
+
+gu_correlogram_plot # no autocorrelation found at closest spatial lag, so spatial model not made
+
 ## now get this for fledge and leps
 fledge_gdd <- fledge_gdd %>% 
   filter(!is.na(juv_meanday),
@@ -214,6 +257,41 @@ fledge_acf_plot <- ggAcf(resid_fledge_sort$resid) +
   theme_bw() +
   ggtitle("")
 
+## spatial autocorrelation and qqplot of green-up model
+hist(f_resid)
+qqnorm(f_resid)
+qqline(f_resid)
+
+resid_fledge$cell <- as.character(resid_fledge$cell)
+resid_fledge <- left_join(resid_fledge, hex_coords_df)
+
+library(ncf)
+ncf_fit <- correlog(x = resid_fledge$X, y = resid_fledge$Y, z = resid_fledge$resid,
+                    increment = 250000, latlon = F, resamp = 100)
+plot(ncf_fit)
+
+ncf_fledge_df <- data.frame(distance = ncf_fit$mean.of.class, 
+                        correlation = ncf_fit$correlation,
+                        p.value = if_else(ncf_fit$p < 0.025, 
+                                          true = "Sig",
+                                          false = "Not Sig")) %>% 
+  filter(distance < 5000000 & distance > 1)
+
+
+fledge_correlogram_plot <- ggplot() +
+  geom_line(ncf_fledge_df,
+            mapping = aes(x = distance, y = correlation)) +
+  geom_point(ncf_fledge_df,
+             mapping = aes(x = distance, y = correlation, fill = p.value),
+             size = 3, shape = 21, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("white", "black")) +
+  labs(x = "Distance", y = "Moran's I", fill = "P-Value") +
+  theme_classic()
+
+fledge_correlogram_plot # no autocorrelation found at closest spatial lag, so spatial model not made
+
+
 ## now lep time
 # deviation model 
 leps_gdd <- leps_gdd %>% 
@@ -283,6 +361,49 @@ acfPlot <- acf(resid_leps_sort$resid)
 leps_acf_plot <- ggAcf(resid_leps_sort$resid) +
   theme_bw() +
   ggtitle("")
+
+## spatial autocorrelation and qqplot of green-up model
+hist(resids_l)
+qqnorm(resids_l)
+qqline(resids_l)
+
+resids_l$cell <- as.character(resids_l$cell)
+resid_leps$cell <- as.character(resid_leps$cell)
+resid_leps <- left_join(resid_leps, hex_coords_df)
+
+library(ncf)
+ncf_fit <- correlog(x = resid_leps$X, y = resid_leps$Y, z = resid_leps$resid,
+                    increment = 250000, latlon = F, resamp = 100)
+plot(ncf_fit)
+
+ncf_leps_df <- data.frame(distance = ncf_fit$mean.of.class, 
+                            correlation = ncf_fit$correlation,
+                            p.value = if_else(ncf_fit$p < 0.025, 
+                                              true = "Sig",
+                                              false = "Not Sig")) %>% 
+  filter(distance < 5000000 & distance > 1)
+
+
+leps_correlogram_plot <- ggplot() +
+  geom_line(ncf_leps_df,
+            mapping = aes(x = distance, y = correlation)) +
+  geom_point(ncf_leps_df,
+             mapping = aes(x = distance, y = correlation, fill = p.value),
+             size = 3, shape = 21, color = "black") +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("white", "black")) +
+  labs(x = "Distance", y = "Moran's I", fill = "P-Value") +
+  theme_classic()
+
+leps_correlogram_plot # no autocorrelation found at closest spatial lag, so spatial model not made
+
+
+## plot correlograms
+cp <- cowplot::plot_grid(gu_correlogram_plot, leps_correlogram_plot,fledge_correlogram_plot, 
+                         labels = c("A", "B", "C", nrow = 2, ncol = 2))
+
+ggsave(filename = "figures/correlelogram.png", plot = cp, width = 8, height = 5)
+
 
 fledge_gdd_plot 
 leps_gdd_plot
@@ -422,3 +543,14 @@ cp
 
 ggsave(filename = "figures/tempResiduals.png", plot = cp,
        width = 12, height = 8)
+
+#R2 of the models
+r.squaredGLMM(leps_tm)
+# R2m       R2c
+# [1,] 0.5591229 0.7328355
+r.squaredGLMM(tm_fledge)
+# R2m       R2c
+# [1,] 0.1906912 0.5539464
+r.squaredGLMM(gu_tm)
+# R2m       R2c
+# [1,] 0.7044038 0.9547725
