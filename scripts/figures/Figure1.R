@@ -145,8 +145,8 @@ ga1 <- ggarrange(
   gu_plot     + theme(legend.position = "none", title = element_text(size = 10)), 
   leps_plot   + theme(legend.position = "none", title = element_text(size = 10)),
   fledge_plot + theme(legend.position = "none", title = element_text(size = 10)),
-                 ncol = 1, nrow = 3,
-                 common.legend = F)
+  ncol = 1, nrow = 3,
+  common.legend = F)
 
 
 
@@ -191,12 +191,12 @@ bigPlot <- arrangeGrob(grobs = list(
     strip.background = element_blank(),
     strip.text = element_text(size = 12),
     plot.margin = margin(0.8,0,0,0.3, unit = "cm")
-    )}
-  ),
-  
-            layout_matrix = matrix(ncol = 2, nrow = 2, byrow = T, data = c(1,1,2,3)),
-            widths = c(1,1.5),
-            heights = c(1,3)
+  )}
+),
+
+layout_matrix = matrix(ncol = 2, nrow = 2, byrow = T, data = c(1,1,2,3)),
+widths = c(1,1.5),
+heights = c(1,3)
 )
 
 library(cowplot)
@@ -206,5 +206,5 @@ bigPlot2 <- cowplot::ggdraw() +
   draw_text("A - Hypotheses", hjust = 0, vjust = 1, x = 0.01, y =0.99) +
   draw_text("B - Spatial predictions", hjust = 0, vjust = 0, x = 0.01, y = 0.71) +
   draw_text("C - GDD sensitivity results", hjust = 0, vjust = 0, x = 0.4, y = 0.71)
-  
+
 ggsave(bigPlot2, filename = "figures/bigPlot.png", width = 6, height = 8, bg = "white")
