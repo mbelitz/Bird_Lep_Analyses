@@ -10,9 +10,8 @@ library(sjPlot)
 library(merTools)
 library(fpp2)
 
-# bird data
 ## read in phenometrics
-arr <- read.csv("Outputs/birds_hopkinsCorrected.csv")
+arr <- read.csv("Outputs/birds_hopkinsCorrected.csv") # for greenup values
 leps <- read.csv("data/phenoEstimates/adult_bfly_phenometrics_noCountCircles_withFull2020Data.csv") %>% 
   dplyr::rename(cell = HEXcell)
 fledge <- readRDS("data/phenoEstimates/MAPS-fledge-dates-2022-02-22.rds") %>% 
