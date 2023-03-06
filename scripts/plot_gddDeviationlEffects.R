@@ -152,6 +152,11 @@ fledge_m <- lmer(juv_meanday ~ spring.dev + mean_ffp +
                    (1|station) + (1|sci_name),
                  data = fledge_scaled, na.action = na.fail, REML = F)
 
+ggplot(fledge_scaled, mapping = aes(x = spring.dev, y = juv_meanday, color = sci_name)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = F) +
+  theme(legend.position = "none")
+
 #dredge
 fledge_d <- dredge(fledge_m)
 tm_fledge <- get.models(fledge_d, subset = 1)[[1]]
@@ -164,6 +169,18 @@ plot_model(tm_fledge, type = "pred", terms = "spring.dev")
 plot_model(tm_fledge, type = "pred", terms = c("PC1"))
 plot_model(tm_fledge, type = "pred", terms = c("mean_ffp"))
 plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
+plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "PC1"))
+
+plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "PC1")) +
+  scale_color_manual(values = c("#C3DBC5","#2A628F","#13293D")) +
+  scale_fill_manual(values = c("#C3DBC5","#2A628F","#13293D")) +
+  labs(x = "GDD anomaly", y = "Fledge date", color = "Trait score", fill = "Trait score") +
+  ggtitle("") +
+  theme_classic()
+
+ggsave(filename = "figures/fledge_sensitivity_byTraitScore.png",
+       width = 4, height = 2.5)
+
 
 fledge_gdd_plot <- plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
 
@@ -256,14 +273,14 @@ leps_resid_plot <- ggplot(resid_leps, mapping = aes(x = year, y = resid)) +
   geom_point(aes(color = code)) +
   geom_smooth(aes(color = code), method = "lm") +
   labs(x = "Year", y = "Residual")+
-  theme_bw()
+  theme_classic()
 
 #no grouping
 leps_resid_plot <- ggplot(resid_leps, mapping = aes(x = year, y = resid)) +
   geom_point() +
   geom_smooth(method = "lm") +
   labs(x = "Year", y = "Residual")+
-  ggtitle('Leps') +
+  ggtitle('Lepidoptera') +
   theme_bw()
 
 resid_leps_sort <- resid_leps[order(resid_leps$year),]
@@ -374,9 +391,8 @@ tdf2 <- tdf %>%
       group2 == 1 ~ "Southerly",
       group2 == -1 ~ "Northerly",
       group2 == 0 ~ "Central"),
-    group2 = factor(group2, levels = c("Southerly", "Central", "Northerly"))
+    group2 = factor(group2, levels = c("Northerly", "Central", "Southerly"))
     )
-
 
 
 gdd_plot <- ggplot(tdf2, mapping = aes(x = x2)) +
@@ -397,11 +413,11 @@ gdd_plot <- ggplot(tdf2, mapping = aes(x = x2)) +
   labs(color = "", fill = "",
        x = "GDD anomaly", y = "Phenology anomaly") +
   #scale_x_continuous(limits = c(-150,150)) +
-  theme_bw() +
+  theme_classic() +
   guides(linetype = element_blank(),
          color=guide_legend(override.aes=list(fill=NA))) +
   theme(legend.position = "bottom") +
-  facet_wrap(~group2)
+  facet_wrap(~group2, nrow = 3, ncol = 1)
 
 gdd_plot
 
@@ -409,7 +425,9 @@ ggsave(filename = "figures/gddDeviationEffects.png", width = 8, height = 3.5)
 
 ### get temporal residuals
 cp <- cowplot::plot_grid(gu_resid_plot, leps_resid_plot, fledge_resid_plot, 
-                         gu_acf_plot, leps_acf_plot, fledge_acf_plot)
+                         gu_acf_plot, leps_acf_plot, fledge_acf_plot, 
+                         labels = c("A", "B", "C",
+                                    "D", "E", "F"))
 
 cp
 
@@ -420,15 +438,60 @@ ggsave(filename = "figures/gddResiduals.png", plot = cp,
 # source intro conceptual figure
 source("scripts/generate_introConceptualFigure.R")
 
-# combine all the plots together of gdd dev and 
-gdd_plot
+pp2 <- pp +
+  ggtitle("Hypotheses") +
+  theme_classic() +  
+  theme(axis.ticks = element_blank()) 
+  
+gdd_plot2 <- gdd_plot +
+  theme(plot.title = element_text(hjust = 0.5), 
+        legend.position = "right")
+
+pp2
+gdd_plot2
+
+ggsave(plot = pp2, filename = "figures/hypotheses.png", 
+       width = 10,height = 3,dpi = 450)
+
+ggsave(plot = gdd_plot2, filename = "figures/results2.png", 
+       width = 5,height = 7,dpi = 450)
+
+pp3 <- pp +
+  theme_classic() +  
+  theme(axis.ticks = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5)) 
+
+pp3
+
+ggsave(plot = pp3, filename = "figures/hypotheses2.png", 
+       width = 8,height = 4,dpi = 450)
+
+# save to powerpoint dimensions
+pp3 <- pp +
+  ggtitle("Hypotheses") +
+  theme_classic() +  
+  theme(axis.ticks = element_blank(), 
+        legend.position = "none",
+        axis.text.x = element_text(angle = 45, hjust = 1),
+        plot.title = element_text(hjust = 0.5)) 
+
+pp3
+
+ggsave(plot = pp3, filename = "figures/hypotheses3.png", 
+       width = 12,height = 3,dpi = 450)
+
+
+# combine all the plots together of gdd dev and gdd_plot
 
 library(ggpubr)
 
-cp <- ggarrange(pp, gdd_plot, nrow = 2, labels = c("Hypotheses", "Emperical"),
+cp <- ggarrange(pp2, gdd_plot2, nrow = 2, ncol = 1,
                 common.legend = T, 
                 label.x = -0.01, 
-                label.y = 1.01)
+                label.y = 1.01, 
+                widths = c(3,0.3),
+                heights = c(2,3))
 cp
 
 ggsave(filename = "figures/Figure1.png", width = 8, height = 7)
