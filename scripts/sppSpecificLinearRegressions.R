@@ -114,7 +114,7 @@ fledge_leps_gdd_gu <- fledge_leps_gdd_gu %>%
                          code == "RP" ~ "Pupae"))
 
 b <- ggplot(fledge_leps_gdd_gu, aes(x = q5, y = juv_meanday, color = sci_name)) +
- # geom_point() +
+  # geom_point() +
   geom_smooth(method = "lm", se = F, size = 0.7) +
   scale_color_manual(values = rep("black", 43)) +
   theme_classic() +
