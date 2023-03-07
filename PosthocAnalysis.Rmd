@@ -1,0 +1,156 @@
+---
+title: "Bird phenology exploration"
+author: "Michael W Belitz"
+date: '2023-03-07'
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(sjPlot)
+knitr::opts_chunk$set(echo = TRUE)
+
+#read in the data
+arr <- read.csv("Outputs/birds_hopkinsCorrected.csv") # for greenup values
+leps <- read.csv("data/phenoEstimates/adult_bfly_phenometrics_noCountCircles_withFull2020Data.csv") %>% 
+  dplyr::rename(cell = HEXcell)
+fledge <- readRDS("data/phenoEstimates/MAPS-fledge-dates-2022-02-22.rds") %>% 
+  mutate(species = stringr::str_replace(sci_name, pattern = " ",
+                                        replacement = "_"))
+bird_pc <- readRDS("data/bird_PC_vals.rds")
+gdd <- data.table::fread('data/gdd_calcs.txt')
+ffp <- read.csv("Outputs/frostFreePeriod_byHex.csv")
+# combine phenometrics with gdd & ffp
+arr_gdd <- left_join(arr, gdd)
+arr_gdd <- left_join(arr_gdd, ffp)
+fledge_gdd <- left_join(fledge,gdd)
+fledge_gdd <- left_join(fledge_gdd, ffp) %>% 
+  filter(!is.na(mean_ffp))
+leps_gdd <- left_join(leps, gdd)
+leps_gdd <- left_join(leps_gdd, ffp)
+
+#filter to years and cells
+greenup <- arr_gdd %>% 
+  dplyr::distinct(cell, year, .keep_all = T) %>% 
+  dplyr::select(cell, year, gr_mn, spring.gdd, summer.gdd, 
+                spring.dev, summer.dev, mean_ffp) %>% 
+  dplyr::filter(year >= 2002 & year <= 2017)
+greenup$cell <- as.character(greenup$cell)
+# scale greenup dataframe
+greenup_scaled <- greenup %>% 
+  mutate(spring.dev = scale(spring.dev),
+         mean_ffp = scale(mean_ffp))
+
+arr_gdd_scaled <- left_join(arr_gdd, bird_pc) %>% 
+  mutate(gr_mn = scale(gr_mn),
+         spring.dev = scale(spring.dev),
+         mean_ffp = scale(mean_ffp))
+
+fledge_gdd <- fledge_gdd %>% 
+  filter(!is.na(juv_meanday),
+         !is.na(spring.gdd),
+         !is.na(spring.dev)) %>% 
+  dplyr::select(sci_name, station, year, cell, juv_meanday, 
+                spring.gdd, summer.gdd,
+                spring.dev, summer.dev, PC1, PC2, species, mean_ffp) %>% 
+  filter(year >= 2002 & year <= 2017)
+
+fledge_scaled <- ungroup(fledge_gdd) %>% 
+  mutate(spring.dev = scale(spring.dev),
+         mean_ffp= scale(mean_ffp)) %>% 
+  filter(!is.na(juv_meanday),
+         !is.na(spring.gdd),
+         !is.na(spring.dev),
+         !is.na(year)) 
+
+fledge_scaled$cell <- as.character(fledge_scaled$cell)
+fledge_scaled_greenup <- left_join(fledge_scaled, greenup_scaled, by = c("year", "cell"))
+#gather mean greenup from 2016-2019
+mean_gu <- fledge_scaled_greenup %>% 
+  filter(year >= 2016 & year <= 2019) %>% 
+  group_by(cell) %>% 
+  summarise(benchmark_gu = mean(gr_mn))
+
+fledge_scaled_greenup <- left_join(fledge_scaled_greenup, mean_gu, by = "cell")
+fledge_scaled_greenup <- fledge_scaled_greenup %>% 
+  mutate(greenup.dev = gr_mn - benchmark_gu)
+
+fledge_scaled_greenup <- mutate(fledge_scaled_greenup, greenup.dev = scale(greenup.dev)) 
+fledge_scaled_greenup <- filter(fledge_scaled_greenup, !is.na(greenup.dev))
+```
+
+## What is the response of fledge dates to GDD deviation?
+
+We find fledge dates are most sensitive to spring GDD in low latitudes and that birds with high PC1 are most sensitive.
+```{r fledge gdd}
+tm_fledge <- lmer(juv_meanday ~ spring.dev + mean_ffp +
+                   PC1 +
+                   spring.dev:mean_ffp +
+                   spring.dev:PC1 +
+                   (1|station) + (1|sci_name),
+                 data = fledge_scaled, na.action = na.fail, REML = F)
+
+summary(tm_fledge)
+
+plot_model(tm_fledge, type = "eff", terms = c("spring.dev", "mean_ffp"))
+plot_model(tm_fledge, type = "eff", terms = c("spring.dev", "PC1"))
+```
+
+## What is the response of fledge dates to Greenup deviation?
+Fledge dates are also most sensitive to greenup in areas with high frost free periods (low-latitudes). No interaction with PC1. These results contradict Youngflesh et al., 2021 findings. They also in part contradict our proposed reasoning in the manuscript that the differences between green-up and GDD may drive our contradictory findings. 
+
+```{r fledge greenup}
+
+tm_fledge2 <- lmer(juv_meanday ~ greenup.dev + mean_ffp.x +
+                   PC1 +
+                   greenup.dev:mean_ffp.x +
+                   greenup.dev:PC1 +
+                   (1|station) + (1|sci_name),
+                 data = fledge_scaled_greenup, na.action = na.fail, REML = F)
+
+summary(tm_fledge2)
+plot_model(tm_fledge2, type = "eff", terms = c("greenup.dev", "mean_ffp.x"))
+plot_model(tm_fledge2, type = "eff", terms = c("greenup.dev", "PC1"))
+```
+
+## Arrival model
+Let's check what arrival looks like given my modeling framework. This should co-align with Youngflesh et al., 2021. It does.
+
+```{r arrival model}
+tm_arr <- lmer(arr_GAM_mean ~ spring.dev + mean_ffp +
+                   PC1 +
+                   spring.dev:mean_ffp +
+                   spring.dev:PC1 +
+                   (1|cell) + (1|species),
+                 data = arr_gdd_scaled, na.action = na.fail, REML = F)
+
+summary(tm_arr)
+plot_model(tm_arr, type = "eff", terms = c("spring.dev", "mean_ffp"))
+plot_model(tm_arr, type = "eff", terms = c("spring.dev", "PC1"))
+```
+
+## These effects are even stronger when looking at greenup as predictor instead of GDD.
+We do find the same results as Youngflesh et al., 2021. So arrival is showing the same responses but fledge is doing something different. 
+
+```{r greenup arrival}
+tm_arr2 <- lmer(arr_GAM_mean ~ gr_mn + mean_ffp +
+                   PC1 +
+                   gr_mn:mean_ffp +
+                   gr_mn:PC1 +
+                   (1|cell) + (1|species),
+                 data = arr_gdd_scaled, na.action = na.fail, REML = F)
+
+summary(tm_arr2)
+plot_model(tm_arr2, type = "eff", terms = c("gr_mn", "mean_ffp"))
+plot_model(tm_arr2, type = "eff", terms = c("gr_mn", "PC1"))
+
+```
+
+## Where does that leave us? 
+1) The trait by latitude interactions for the fledge models show the opposite response than is shown in the arrival models.
+2) We don't really have evidence that green-up vs GDD interactions differ for fledge models, which we posit as a reason for the differences in-text.
+3) Our results also contradict Casey's findings in the phenology-demography manuscript currently in-review that species with lower PC1 values have fledge dates more sensitive to green-up. Why?
+  - I don't know but that study occurs at a station-level and we coarsen the GDD values to a cell-level. Our study also is done at a smaller spatial area (eastern U.S. vs. continental U.S.) and thus includes fewer species. 
