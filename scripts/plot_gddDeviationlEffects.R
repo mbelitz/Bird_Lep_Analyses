@@ -80,6 +80,7 @@ gu_m <-  lmer(formula = gr_mn ~ spring.dev + mean_ffp +
                 spring.dev:mean_ffp +
                 (1|cell), data = greenup_scaled,
               na.action = na.fail, REML = F)
+car::vif(gu_m)
 
 gu_d <- dredge(gu_m)
 
@@ -150,6 +151,7 @@ fledge_m <- lmer(juv_meanday ~ spring.dev + mean_ffp +
                    spring.dev:PC1 +
                    (1|station) + (1|sci_name),
                  data = fledge_scaled, na.action = na.fail, REML = F)
+car::vif(fledge_m)
 
 ggplot(fledge_scaled, mapping = aes(x = spring.dev, y = juv_meanday, color = sci_name)) +
   geom_point() +
@@ -168,7 +170,7 @@ plot_model(tm_fledge, type = "pred", terms = "spring.dev")
 plot_model(tm_fledge, type = "pred", terms = c("PC1"))
 plot_model(tm_fledge, type = "pred", terms = c("mean_ffp"))
 plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "mean_ffp"))
-plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "PC1"))
+plot_model(tm_fledge, type = "eff", terms = c("spring.dev", "PC1"))
 
 plot_model(tm_fledge, type = "pred", terms = c("spring.dev", "PC1")) +
   scale_color_manual(values = c("#C3DBC5","#2A628F","#13293D")) +
@@ -249,6 +251,7 @@ leps_m <- lmer(q5 ~ spring.dev + mean_ffp +
                  spring.dev:mean_ffp +
                  (1|cell), 
                data = leps_scaled, na.action = na.fail, REML = F)
+car::vif(leps_m)
 
 leps_d <- dredge(leps_m)
 leps_tm <- get.models(leps_d, 2)[[1]]
