@@ -4,3 +4,30 @@
 
 
 3. The weakening of the bird relationship toward the north is, at face value, possibly at odds with Casey’s work (i.e., that phenological sensitivity in migration is greatest in the north), but not necessarily so. It could say that there is so much food available in the north that there is no ‘peak’ to optimally match with (which fits with the hypothesis behind why birds migrate north anyway), whereas in the south, there is less food (and/or more competition) so you have to be more nimble in adjusting your breeding to better time it. 
+
+A few comments. Overall I think you’re on the right track! One thing, however. The way you have the model coded up, beta is essentially another global intercept (just like alpha, since the covariate (x) is multiplied by the b offset but not the ‘main’ beta):
+mu[i] <- alpha + a[cell[i]] + beta + b[cell[i]] * x[i] # equation
+ I prefer to model these things as in the script I sent you earlier (similar to the end of this message), since that is a step towards modeling parameters as a function of other covariates. This way should  work fine though if you use some round brackets to group beta and b together:
+ mu[i] <- alpha + a[cell[i]] + (beta + b[cell[i]]) * x[i] # equation
+ I would also say that if you are specifically interested in how beta (sensitivity) varies as a function of latitude, you can estimate that directly in the model. Looking at this posthoc isn’t incorrect (especially to just get a sense, of course), but you’d want to account for the uncertainty in those parameter estimates if you do this is two stages when you’re trying to make robust inference since it’s a sort of ‘stats on stats’ situation (running an analysis using param estimates as a response).
+To model the effect of lat on sensitivity directly I would suggest something like this (so those betas are being modeled as a function of cell lat - theta would be the effect of cell lat on the sensitivity):
+ # Likelihood
+for (i in 1:N)
+{
+  y[i] ~ dnorm(mu[i], tau)
+  mu[i] <- alpha[group[i]] + beta[group[i]] * x[i]
+}
+for (j in 1:M)
+{
+  alpha[j] ~ dnorm(mu_alpha, tau_alpha)
+  beta[j] ~ dnorm(mu_beta[j], tau_beta)
+  mu_beta[j] ~ dnorm(mmb[j], tmb)
+  mmb[j] = gamma + theta * lat[j]
+}
+
+
+
+
+
+11:20
+Let me know if that makes sense. Happy to chat if it doesn’t!
