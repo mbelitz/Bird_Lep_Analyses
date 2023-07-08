@@ -1,0 +1,29 @@
+model{
+
+ # Likelihood
+for (i in 1:N){
+  y[i] ~ dnorm(mu[i], tau)
+  mu[i] <- alpha[group[i]] + beta[group[i]] * x[i]
+}
+for (j in 1:M){
+  alpha[j] ~ dnorm(mu_alpha, tau_alpha)
+  beta[j] ~ dnorm(mu_beta[j], tau_beta)
+  mu_beta[j] ~ dnorm(mmb[j], tmb)
+  mmb[j] = gamma + theta * lat[j]
+}
+
+#priors:
+  mu_alpha ~ dnorm(0, 0.01) # intercept
+  sigma_alpha ~ dunif(0,100) # standard deviation of random intercept
+  tau_alpha <- 1 / (sigma_alpha * sigma_alpha) #converted to precision
+  sigma_beta ~ dunif(0,100) # s.d. of random slope
+  tau_beta <- 1 / (sigma_beta * sigma_beta) # converted to precision
+  sigma ~ dunif(0,100)
+  tau = 1 / (sigma * sigma)
+  theta ~ dnorm(0, 0.01)
+  sigma_theta ~ dunif(0,100)
+  tmb = 1 / (sigma_theta * sigma_theta)
+  gamma ~ dnorm(0, 0.01)
+  sigma_gamma ~ dunif(0,100)
+  tau_gamma = 1 / (sigma_gamma * sigma_gamma)
+}
