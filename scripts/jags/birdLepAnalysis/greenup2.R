@@ -53,7 +53,7 @@ DATA <- list(y = as.vector(greenup$gr_mn),
 
 fit <- jagsUI::jags(model.file = 'scripts/jags/birdLepAnalysis/greenup_latEffect.jags',
                     data = DATA,
-                    parameters.to.save = c("alpha", "beta", "theta"),
+                    parameters.to.save = c("alpha", "beta", "theta", "mu_alpha", "mu_beta", "gamma"),
                     n.chains = 4,
                     n.burnin = 10000, #number of 'burn-in' iterations - so the model can start to find the best areas of parameter space before tracking MCMC values
                     n.iter = 20000, #number of samples to draw from the posterior + burnin
@@ -63,7 +63,7 @@ summary(fit)
 # get output summary
 #Summary
 MCMCvis::MCMCsummary(fit, 
-                     params = c('alpha', 'beta','theta'),
+                     params = c('alpha', 'beta','theta', "mu_alpha"),
                      round = 3)
 #Look at trace plots
 MCMCvis::MCMCtrace(fit, 

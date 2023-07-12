@@ -21,9 +21,7 @@ for (j in 1:M){
   sigma ~ dunif(0,100)
   tau = 1 / (sigma * sigma)
   theta ~ dnorm(0, 0.01)
-  sigma_theta ~ dunif(0,100)
-  tmb = 1 / (sigma_theta * sigma_theta)
+  sigma_mb ~ dunif(0,100)
+  tmb = 1 / (sigma_mb * sigma_mb)
   gamma ~ dnorm(0, 0.01)
-  sigma_gamma ~ dunif(0,100)
-  tau_gamma = 1 / (sigma_gamma * sigma_gamma)
-}
+  }
